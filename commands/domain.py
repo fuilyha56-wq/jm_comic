@@ -22,8 +22,15 @@ class JmDomainCommand(JmBaseCommand):
     command_prefix: str = "/"
 
     @cmd_route()
-    async def handle(self) -> tuple[bool, str]:
-        """显示域名命令帮助。"""
+    async def handle(self, sub: str = "") -> tuple[bool, str]:
+        """显示域名命令帮助或分发到子方法。"""
+        if sub == "list":
+            return await self.list_domains()
+        if sub == "test":
+            return await self.test_domains()
+        if sub == "update":
+            return await self.update_domains()
+
         await self.reply(
             "📋 禁漫域名工具用法:\n\n"
             "/jmdomain list - 显示当前配置的域名\n"

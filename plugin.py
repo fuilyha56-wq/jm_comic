@@ -77,7 +77,7 @@ class JmComicPlugin(BasePlugin):
                 self.client_factory, self.resource_manager, cfg
             )
             logger.info(
-                "JM 漫画插件已加载，下载目录: %s", self.resource_manager.base_dir
+                f"JM 漫画插件已加载，下载目录: {self.resource_manager.base_dir}"
             )
         except Exception as exc:
             logger.error(f"JM 漫画插件初始化失败: {exc}")

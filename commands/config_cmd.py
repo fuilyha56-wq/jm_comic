@@ -70,9 +70,12 @@ class JmConfigCommand(JmBaseCommand):
     async def reload(self) -> tuple[bool, str]:
         """重新加载配置文件。"""
         try:
+            from src.app.plugin_system.api.config_api import reload_config
+
             from ..config import JmComicConfig
 
-            self.jm_plugin.config = JmComicConfig.load_for_plugin("jm_comic")
+            new_cfg = reload_config(self.jm_plugin.plugin_name, JmComicConfig)
+            self.jm_plugin.config = new_cfg
             self.jm_plugin.rebuild_clients()
             await self.reply("已重新加载配置")
             return True, "ok"

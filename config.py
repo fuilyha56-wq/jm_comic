@@ -84,3 +84,8 @@ class JmComicConfig(BaseConfig):
             label="调试模式",
             tag="download",
         )
+
+    # 配置节实例：必须在外层挂接，否则运行时无法用 self.config.network 等访问
+    plugin: PluginSection = Field(default_factory=PluginSection)
+    network: NetworkSection = Field(default_factory=NetworkSection)
+    download: DownloadSection = Field(default_factory=DownloadSection)
