@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+# runtime data
+data/
+config/
+
+# build artifacts
+dist/
+build/
+*.mfp
+*.zip
+
+# virtual environments
+.venv/
+venv/
+env/
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# logs and temp files
+*.log
+*.tmp
+*.bak

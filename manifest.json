@@ -1,0 +1,110 @@
+{
+    "name": "jm_comic",
+    "version": "1.1.0",
+    "description": "JM 漫画下载与查询插件，支持下载为 PDF、搜索、作者搜索、随机推荐、预览图片、域名测试等功能",
+    "author": "qukulei-342",
+    "license": "AGPL-3.0",
+    "homepage": "https://github.com/qukulei-342/jm_comic",
+    "categories": ["tool"],
+    "keywords": [
+        "jm",
+        "jmcomic",
+        "manga",
+        "comic",
+        "download",
+        "pdf"
+    ],
+    "dependencies": {
+        "plugins": [],
+        "components": []
+    },
+    "python_dependencies": [
+        "jmcomic>=2.5.39",
+        "PyYAML>=6.0",
+        "curl_cffi>=0.6.0",
+        "img2pdf"
+    ],
+    "dependencies_required": true,
+    "include": [
+        {
+            "component_type": "command",
+            "component_name": "jm",
+            "description": "下载 JM 漫画并发送 PDF",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jminfo",
+            "description": "查询 JM 漫画信息",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jmsearch",
+            "description": "按关键词搜索 JM 漫画",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jmauthor",
+            "description": "按作者搜索 JM 漫画",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jmrecommend",
+            "description": "随机推荐 JM 漫画",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jmimg",
+            "description": "下载 JM 漫画前几页作为预览图片",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jmpdf",
+            "description": "查看 JM 漫画 PDF 文件信息",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jmdomain",
+            "description": "测试并更新可用的 JM 镜像域名",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jmcleanup",
+            "description": "清理 JM 漫画过期缓存文件",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jmhelp",
+            "description": "显示 JM 插件帮助信息",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jmstatus",
+            "description": "显示 JM 插件运行状态",
+            "dependencies": []
+        },
+        {
+            "component_type": "command",
+            "component_name": "jmconfig",
+            "description": "在线配置 JM 插件",
+            "dependencies": []
+        },
+        {
+            "component_type": "config",
+            "component_name": "config",
+            "description": "JM 插件配置",
+            "dependencies": []
+        }
+    ],
+    "entry_point": "plugin.py",
+    "min_core_version": "1.0.0"
+}
