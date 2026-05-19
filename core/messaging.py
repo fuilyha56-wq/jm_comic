@@ -167,8 +167,8 @@ async def reply_local_file(
         }
         if platform:
             kwargs["platform"] = platform
-        if processed_plain_text:
-            kwargs["processed_plain_text"] = processed_plain_text
+        # 注意：send_file() 不接受 processed_plain_text 参数，
+        # file_name 会自动作为 processed_plain_text 传递
         return await send_file(**kwargs)
     except Exception as exc:
         logger.error(f"发送文件失败 {file_path}: {exc}")
