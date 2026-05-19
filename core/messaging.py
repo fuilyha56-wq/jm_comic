@@ -6,7 +6,12 @@ import base64
 import os
 
 from src.app.plugin_system.api.log_api import get_logger
-from src.app.plugin_system.api.send_api import send_file, send_image, send_text
+from src.app.plugin_system.api.send_api import (
+    send_file,
+    send_image,
+    send_text,
+    send_text_with_image,
+)
 
 logger = get_logger("jm_comic.messaging")
 
@@ -155,3 +160,46 @@ async def reply_local_file(
     except Exception as exc:
         logger.error(f"发送文件失败 {file_path} (napcat={napcat_file_path}): {exc}")
         return False
+
+
+async def reply_search_result_item(
+    stream_id: str,
+    idx_text: str,
+    title_text: str,
+    cover_b64: str | None,
+) -> bool:
+    """发送单条搜索结果（标题+封面图合并为一条消息）。
+
+    使用 send_text_with_image 将文本和图片合并发送，
+    确保标题与封面图在同一个消息气泡中显示。
+
+    Args:
+        stream_id: 聊天流 ID。
+        idx_text: 序号文本（如 "1. [12345]"）。
+        title_text: 漫画标题。
+        cover_b64: 封面图 base64 数据，为 None 时仅发送文本。
+
+    Returns:
+        是否发送成功。
+    """
+    text = f"{idx_text} {title_text}"
+
+    if not cover_b64:
+        # 没有封面图，仅发送文本
+        return await reply_text(stream_id, text)
+
+    try:
+        return await send_text_with_image(text, cover_b64, stream_id=stream_id)
+    except Exception as exc:
+        logger.warning(f"图文合并发送失败，降级为逐条发送: {exc}")
+        # 降级：先发文本，再发图片
+        text_ok = await reply_text(stream_id, text)
+        try:
+            await send_image(
+                image_data=cover_b64,
+                stream_id=stream_id,
+                processed_plain_text="[封面]",
+            )
+        except Exception:
+            pass
+        return text_ok
