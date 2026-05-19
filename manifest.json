@@ -43,7 +43,7 @@
         {
             "component_type": "command",
             "component_name": "jmsearch",
-            "description": "按关键词搜索 JM 漫画",
+            "description": "按关键词搜索 JM 漫画（仅关键词=列表翻页，加序号=直接查看详情）",
             "dependencies": []
         },
         {

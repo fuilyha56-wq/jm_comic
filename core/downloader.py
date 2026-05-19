@@ -10,7 +10,7 @@ from typing import Any, TYPE_CHECKING
 
 from src.app.plugin_system.api.log_api import get_logger
 
-from .helpers import extract_title_from_html, humanize_download_error
+from .helpers import humanize_download_error
 
 if TYPE_CHECKING:
     from ..config import JmComicConfig
@@ -63,57 +63,36 @@ class ComicDownloader:
     async def download_cover(self, album_id: str) -> tuple[bool, str]:
         """下载漫画封面。
 
-        Args:
-            album_id: 漫画 ID。
-
-        Returns:
-            (是否成功, 封面路径或错误消息)。
+        使用 ``jmcomic`` 官方客户端的 ``download_album_cover()`` 下载真正的
+        本子封面图，而不是下载第一话第一张图片。
         """
         if album_id in self.downloading_covers:
             return False, "封面正在下载中"
         self.downloading_covers.add(album_id)
         try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                self._thread_pool, self._download_cover_sync, album_id
+            )
+        finally:
+            self.downloading_covers.discard(album_id)
+
+    def _download_cover_sync(self, album_id: str) -> tuple[bool, str]:
+        """同步下载封面，供线程池调用。"""
+        try:
             logger.info(f"开始下载漫画封面 ID={album_id}")
             client = self.client_factory.create_client()
-            try:
-                album = client.get_album_detail(album_id)
-            except Exception as exc:
-                error_msg = str(exc)
-                logger.error(f"获取漫画详情失败: {error_msg}")
-                if "文本没有匹配上字段" in error_msg and "pattern:" in error_msg:
-                    try:
-                        domain = self.config.network.domain_list[0]
-                        html = client._postman.get_html(
-                            f"https://{domain}/album/{album_id}"
-                        )
-                        self.resource_manager.save_debug_text(
-                            f"album_html_{album_id}", html
-                        )
-                        title = extract_title_from_html(html)
-                        return False, f"解析漫画信息失败，但找到标题: {title}"
-                    except Exception as parse_exc:
-                        return False, f"解析漫画信息失败: {parse_exc}"
-                return False, humanize_download_error(exc, "封面下载")
-            if not album:
-                return False, "漫画不存在"
-            first_photo = album[0]
-            photo = client.get_photo_detail(first_photo.photo_id, True)
-            if not photo:
-                return False, "无法获取漫画第一话"
-            image = photo[0]
             cover_path = self.resource_manager.get_cover_path(album_id)
-            client.download_by_image_detail(image, cover_path)
-            if (
-                os.path.exists(cover_path)
-                and os.path.getsize(cover_path) >= 1000
-            ):
+
+            # jmcomic 官方接口：/media/albums/{album_id}.jpg
+            # size 为空表示原始封面；不是章节第一页。
+            client.download_album_cover(album_id, cover_path)
+            if os.path.exists(cover_path) and os.path.getsize(cover_path) >= 1000:
                 return True, cover_path
             return False, "封面文件大小异常"
         except Exception as exc:
             logger.error(f"封面下载失败: {exc}")
             return False, humanize_download_error(exc, "封面下载")
-        finally:
-            self.downloading_covers.discard(album_id)
 
     async def download_comic(self, album_id: str) -> tuple[bool, str | None]:
         """下载整本漫画并生成 PDF。
