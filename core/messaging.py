@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import os
-from typing import Any
 
 from src.app.plugin_system.api.log_api import get_logger
 from src.app.plugin_system.api.send_api import send_file, send_image, send_text
@@ -28,52 +27,25 @@ def _windows_path_to_wsl_path(file_path: str) -> str:
     return normalized
 
 
-def _wsl_path_to_windows_path(file_path: str) -> str:
-    """将 WSL 的 /mnt/x/ 路径转换为 Windows 路径。
+def _resolve_to_napcat_path(file_path: str) -> str:
+    """将任意路径（相对/Windows 绝对/WSL 绝对）转换为 NapCat 可访问的 WSL 路径。
 
-    - WSL 路径 ``/mnt/c/data/file.pdf`` → ``C:/data/file.pdf``
-    - 非 /mnt/ 路径 ``/home/user/file.pdf`` → 保持不变
-    - 已经是 Windows 路径 → 保持不变
+    NapCat 运行在 WSL 中，无法解析 mofox 的相对路径或 Windows 风格的路径。
+    本函数统一转换流程：
+
+    1. 如果已经是 WSL 路径（``/mnt/x/...`` 或其他 Linux 路径），保持不变
+    2. 否则视为 Windows 路径或相对路径，先用 ``os.path.abspath()``
+       转为绝对 Windows 路径，再转为 WSL 路径
     """
 
     normalized = file_path.strip()
-    if normalized.startswith("/mnt/") and len(normalized) >= 7:
-        # /mnt/x/rest → x:/rest
-        drive_and_rest = normalized[5:]  # 去掉 "/mnt/"
-        drive = drive_and_rest[0]
-        rest = drive_and_rest[1:]  # 去掉盘符
-        if rest.startswith("/"):
-            rest = rest[1:]
-        return f"{drive.upper()}:/{rest}" if rest else f"{drive.upper()}:/"
-    return normalized
-
-
-def _normalize_path_for_napcat(file_path: str) -> str:
-    """将文件路径规范化为 NapCat 可访问的路径。
-
-    NapCat 可能运行在 WSL 或 Windows 环境中。本函数根据输入路径格式
-    自动判断并转换为对应的 WSL 路径，确保 NapCat 能正确找到文件：
-
-    - Windows 路径（``C:\\data\\file.pdf``）→ 转换为 WSL 路径 ``/mnt/c/data/file.pdf``
-    - WSL 路径（``/mnt/c/data/file.pdf``）→ 保持不变
-    - 纯 Linux 路径（``/home/user/file.pdf``）→ 保持不变
-    """
-
-    return _windows_path_to_wsl_path(file_path)
-
-
-def _normalize_path_for_local(file_path: str) -> str:
-    """将文件路径规范化为本地系统可访问的路径（用于文件存在性检查）。
-
-    在 Windows 宿主环境中运行时，需要将 WSL 路径转回 Windows 路径
-    才能通过 ``os.path.exists()`` 检查文件是否存在：
-
-    - WSL 路径（``/mnt/c/data/file.pdf``）→ 转换为 Windows 路径 ``C:/data/file.pdf``
-    - Windows 路径（``C:\\data\\file.pdf``）→ 保持不变
-    - 纯 Linux 路径 → 保持不变
-    """
-
-    return _wsl_path_to_windows_path(file_path)
+    # 已经是 Linux/WSL 风格的绝对路径，原样返回
+    if normalized.startswith("/"):
+        return normalized
+    # 相对路径或 Windows 路径：先转为 Windows 绝对路径
+    abs_path = os.path.abspath(normalized)
+    # 再转为 WSL 路径
+    return _windows_path_to_wsl_path(abs_path)
 
 
 async def reply_text(stream_id: str, text: str) -> bool:
@@ -100,7 +72,7 @@ async def reply_image_file(
 
     Args:
         stream_id: 聊天流 ID。
-        file_path: 图片文件绝对路径。
+        file_path: 图片文件路径（相对或绝对）。
         processed_plain_text: 文本占位描述。
 
     Returns:
@@ -130,46 +102,56 @@ async def reply_local_file(
     processed_plain_text: str = "",
     platform: str | None = None,
 ) -> bool:
-    """通过 send_file 发送本地文件。
+    """通过 send_file 发送本地文件给运行在 WSL 上的 NapCat。
 
-    同时支持 Windows 路径和 WSL 路径作为输入：
+    自动处理路径转换：
 
-    - Windows 路径（如 ``C:\\data\\file.pdf``）→ 自动转换为 WSL 路径发送给 NapCat
-    - WSL 路径（如 ``/mnt/c/data/file.pdf``）→ 直接使用
-
-    文件存在性检查会自动将 WSL 路径转回 Windows 路径，确保在 Windows 宿主
-    环境下 ``os.path.exists()`` 能正确判定。
+    - 输入支持**相对路径**（如 ``data/plugins/jm_comic/pdfs/46464.pdf``）
+    - 输入支持 Windows 绝对路径（如 ``E:\\...\\46464.pdf``）
+    - 输入支持 WSL 绝对路径（如 ``/mnt/e/.../46464.pdf``）
+    - 发送给 NapCat 时统一转换为 WSL 绝对路径
 
     Args:
         stream_id: 聊天流 ID。
-        file_path: 文件绝对路径（支持 Windows 或 WSL 格式）。
+        file_path: 文件路径（相对/Windows 绝对/WSL 绝对都可以）。
         file_name: 展示给用户的文件名，缺省则取 basename。
-        processed_plain_text: 文本占位描述。
+        processed_plain_text: 保留参数用于向后兼容。``send_file`` 不接受此参数，
+            它会自动用 ``file_name`` 作为占位文本。
         platform: 平台名称（可选，不传时从 stream_id 推断）。
 
     Returns:
         发送是否成功。
     """
-    # 用本地路径格式检查文件是否存在（WSL 路径需要转回 Windows 路径才能在宿主环境中判断）
-    local_path = _normalize_path_for_local(file_path)
-    if not os.path.exists(local_path):
-        logger.warning(f"待发送文件不存在: {file_path}（本地路径: {local_path}）")
+    # 文件存在性检查：直接用原始路径（相对路径在 mofox 工作目录下有效）
+    if not os.path.exists(file_path):
+        logger.warning(f"待发送文件不存在: {file_path}")
         return False
-    # 用 basename 逻辑生成文件名（需要从本地可识别的路径中提取）
-    name = file_name or os.path.basename(local_path)
-    # 将路径规范化为 NapCat 可访问的路径（Windows→WSL 转换）
-    napcat_file_path = _normalize_path_for_napcat(file_path)
+
+    # 文件名：从原始路径取 basename（兼容 Windows / WSL / 相对路径）
+    name = file_name
+    if not name:
+        normalized_for_basename = file_path.replace("\\", "/")
+        name = normalized_for_basename.rstrip("/").rsplit("/", 1)[-1] or "file"
+
+    # 转换为 NapCat 可访问的 WSL 绝对路径
+    napcat_file_path = _resolve_to_napcat_path(file_path)
+    logger.info(f"发送文件 {file_path} → NapCat 路径: {napcat_file_path}")
+
     try:
-        kwargs: dict[str, Any] = {
-            "file_path": napcat_file_path,
-            "stream_id": stream_id,
-            "file_name": name,
-        }
-        if platform:
-            kwargs["platform"] = platform
         # 注意：send_file() 不接受 processed_plain_text 参数，
-        # file_name 会自动作为 processed_plain_text 传递
-        return await send_file(**kwargs)
+        # 它内部会自动用 file_name 作为 processed_plain_text 传递
+        if platform:
+            return await send_file(
+                file_path=napcat_file_path,
+                stream_id=stream_id,
+                platform=platform,
+                file_name=name,
+            )
+        return await send_file(
+            file_path=napcat_file_path,
+            stream_id=stream_id,
+            file_name=name,
+        )
     except Exception as exc:
-        logger.error(f"发送文件失败 {file_path}: {exc}")
+        logger.error(f"发送文件失败 {file_path} (napcat={napcat_file_path}): {exc}")
         return False
