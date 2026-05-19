@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, TYPE_CHECKING
 
 import jmcomic
@@ -13,6 +14,70 @@ if TYPE_CHECKING:
     from .resource_manager import ResourceManager
 
 logger = get_logger("jm_comic.client_factory")
+
+
+def _detect_system_proxy() -> str | None:
+    """自动检测系统代理。
+
+    检测顺序：
+
+    1. 环境变量 ``HTTPS_PROXY`` / ``HTTP_PROXY`` / ``ALL_PROXY``
+    2. Windows 注册表中的系统代理设置（``ProxyEnable=1``）
+
+    Returns:
+        代理 URL（如 ``http://127.0.0.1:7890``），未检测到则返回 None。
+    """
+    # 1. 环境变量优先
+    for var in (
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ):
+        value = os.environ.get(var)
+        if value:
+            logger.info(f"自动代理检测：从环境变量 {var} 读取到 {value}")
+            return value
+
+    # 2. Windows 注册表
+    try:
+        import winreg  # type: ignore[import-not-found]
+
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+            enable, _ = winreg.QueryValueEx(key, "ProxyEnable")
+            if enable:
+                proxy_server, _ = winreg.QueryValueEx(key, "ProxyServer")
+                if proxy_server:
+                    # ProxyServer 可能是 "host:port" 或 "http=h:p;https=h:p"
+                    proxy_str = str(proxy_server).strip()
+                    if "=" in proxy_str:
+                        parts: dict[str, str] = {}
+                        for segment in proxy_str.split(";"):
+                            if "=" in segment:
+                                scheme, addr = segment.split("=", 1)
+                                parts[scheme.strip().lower()] = addr.strip()
+                        host_port = parts.get("https") or parts.get("http")
+                    else:
+                        host_port = proxy_str
+                    if host_port:
+                        proxy_url = (
+                            host_port
+                            if host_port.startswith(("http://", "https://", "socks"))
+                            else f"http://{host_port}"
+                        )
+                        logger.info(
+                            f"自动代理检测：从 Windows 注册表读取到 {proxy_url}"
+                        )
+                        return proxy_url
+    except (ImportError, OSError, FileNotFoundError) as exc:
+        logger.debug(f"自动代理检测：跳过 Windows 注册表（{exc}）")
+    except Exception as exc:
+        logger.warning(f"自动代理检测：读取 Windows 注册表失败 {exc}")
+
+    return None
 
 
 class JMClientFactory:
@@ -33,11 +98,30 @@ class JMClientFactory:
         self.resource_manager = resource_manager
         self.option = self._create_option()
 
+    def _resolve_proxy(self) -> str | None:
+        """解析最终生效的代理地址。
+
+        优先级：
+        1. 用户在配置中显式填写的 ``network.proxy``
+        2. 系统自动检测（环境变量 / Windows 注册表）
+        """
+        net = self.config.network
+        if net.proxy:
+            logger.debug(f"使用配置文件中的代理：{net.proxy}")
+            return net.proxy
+        auto = _detect_system_proxy()
+        if auto:
+            logger.info(f"未配置代理，自动启用系统代理：{auto}")
+        else:
+            logger.debug("未配置代理，且未检测到系统代理")
+        return auto
+
     def _create_option(self) -> Any:
         """根据当前配置生成 jmcomic 选项对象。"""
         net = self.config.network
         download = self.config.download
-        proxies = {"https": net.proxy} if net.proxy else None
+        proxy_url = self._resolve_proxy()
+        proxies = {"https": proxy_url, "http": proxy_url} if proxy_url else None
         option_dict = {
             "client": {
                 "impl": "html",
