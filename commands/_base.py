@@ -38,10 +38,14 @@ class JmBaseCommand(BaseCommand):
         file_path: str,
         file_name: str | None = None,
         processed_plain_text: str = "",
+        platform: str | None = None,
     ) -> bool:
-        """发送文件消息。"""
+        """发送文件消息。
+
+        同时支持 Windows 路径和 WSL 路径，会自动转换为 NapCat 可访问的格式。
+        """
         return await reply_local_file(
-            self.stream_id, file_path, file_name, processed_plain_text
+            self.stream_id, file_path, file_name, processed_plain_text, platform
         )
 
     def split_args(self) -> list[str]:
