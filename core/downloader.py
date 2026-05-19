@@ -144,7 +144,10 @@ class ComicDownloader:
             self.downloading_comics.discard(album_id)
 
     def _download_with_retry(self, album_id: str) -> tuple[bool, str | None]:
-        """同步执行带重试的下载。"""
+        """同步执行带重试的下载。
+
+        对 403 地区限制/爬虫识别类错误不进行无意义重试，直接返回明确提示。
+        """
         import jmcomic
 
         attempts = 0
@@ -159,6 +162,23 @@ class ComicDownloader:
             except Exception as exc:
                 last_error = humanize_download_error(exc, f"下载第{attempts}次")
                 logger.error(last_error)
+
+                # 403 地区限制/爬虫被识别：重试无意义，直接返回
+                error_str = str(exc)
+                if "403" in error_str and (
+                    "ip地区禁止访问" in error_str or "爬虫被识别" in error_str
+                ):
+                    hint = (
+                        "⚠️ 下载失败：IP 地区被限制或爬虫被识别。\n"
+                        "解决方法：\n"
+                        "1. 配置代理：/jmconfig proxy http://127.0.0.1:7890\n"
+                        "2. 配置 AVS Cookie：/jmconfig avs_cookie <你的cookie值>"
+                    )
+                    return False, hint
+
+                # 其他 403 错误（如需要登录）也不重试
+                if "403" in error_str:
+                    return False, last_error
         return False, last_error or "下载失败"
 
     def preview_download_comic(

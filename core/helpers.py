@@ -88,6 +88,15 @@ def humanize_download_error(error: Exception, context: str) -> str:
         return f"{context}失败：网站结构可能已更改，请尝试 /jmdomain update 更新域名"
     if "not found" in lower_msg or "404" in error_msg:
         return f"{context}失败：资源不存在或已被删除"
+    if "403" in error_msg:
+        if "ip地区禁止访问" in error_msg or "爬虫被识别" in error_msg:
+            return (
+                f"{context}失败：IP 地区被限制或爬虫被识别\n"
+                "解决方法：\n"
+                "1. 配置代理：/jmconfig proxy http://127.0.0.1:7890\n"
+                "2. 配置 AVS Cookie：/jmconfig avs_cookie <你的cookie值>"
+            )
+        return f"{context}失败：访问被拒绝（403），可能需要登录或配置代理"
     return f"{context}失败：{error_msg[:200]}"
 
 
