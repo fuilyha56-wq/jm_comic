@@ -29,7 +29,7 @@ class JmComicConfig(BaseConfig):
             tag="plugin",
         )
         version: str = Field(
-            default="1.2.0",
+            default="1.2.1",
             description="插件版本",
             label="插件版本",
             disabled=True,

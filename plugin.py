@@ -39,7 +39,7 @@ class JmComicPlugin(BasePlugin):
         "JM 漫画下载与查询插件：下载为 PDF、查询信息、关键词/作者搜索、"
         "随机推荐、预览图片、域名测试等。"
     )
-    plugin_version: ClassVar[str] = "1.2.0"
+    plugin_version: ClassVar[str] = "1.2.1"
 
     configs: list[type] = [JmComicConfig]
     dependent_components: list[str] = []
