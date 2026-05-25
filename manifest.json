@@ -1,6 +1,6 @@
 {
     "name": "jm_comic",
-    "version": "1.2.2-alpha",
+    "version": "1.2.3-alpha",
     "description": "JM 漫画下载与查询插件，支持下载为 PDF、搜索、作者搜索、随机推荐、预览图片、域名测试等功能",
     "author": "Lycoris",
     "license": "AGPL-3.0",
