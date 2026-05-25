@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any
+from urllib.parse import urlparse
+
 from src.app.plugin_system.api.log_api import get_logger
 from src.app.plugin_system.base import cmd_route
 
@@ -9,13 +12,19 @@ from ..core.helpers import validate_domain
 from ._base import JmBaseCommand
 from ._config_io import save_config
 
+from ..core.session import JmSessionManager
+
 logger = get_logger("jm_comic.commands.config")
 
 HELP_TEXT = (
     "用法:\n"
     "/jmconfig proxy [代理URL] - 设置代理URL\n"
     "/jmconfig noproxy - 清除代理设置\n"
-    "/jmconfig cookie [AVS Cookie] - 设置登录Cookie\n"
+    "/jmconfig cookie [AVS Cookie] - 设置登录Cookie（手动模式）\n"
+    "/jmconfig username [用户名] - 设置JM登录用户名\n"
+    "/jmconfig password [密码] - 设置JM登录密码\n"
+    "/jmconfig login - 执行登录（用已配置的用户名密码）\n"
+    "/jmconfig logout - 清除登录Cookie\n"
     "/jmconfig threads [数量] - 设置最大下载线程数\n"
     "/jmconfig domain [域名] - 添加JM漫画域名\n"
     "/jmconfig debug [on/off] - 开启/关闭调试模式\n"
@@ -43,16 +52,30 @@ class JmConfigCommand(JmBaseCommand):
     async def info(self) -> tuple[bool, str]:
         """显示当前配置。"""
         cfg = self.jm_plugin.config
+        login_status = self._get_login_status(cfg)
         await self.reply(
             "当前配置信息:\n"
             f"域名列表: {', '.join(cfg.network.domain_list)}\n"
             f"代理: {cfg.network.proxy if cfg.network.proxy else '未设置'}\n"
+            f"用户名: {'已设置' if cfg.network.username else '未设置'}\n"
+            f"登录状态: {login_status}\n"
             f"Cookie: {'已设置' if cfg.network.avs_cookie else '未设置'}\n"
+            f"完整Cookie: {'已持久化' if cfg.network.full_cookies else '未保存'}\n"
             f"最大线程数: {cfg.download.max_threads}\n"
             f"调试模式: {'开启' if cfg.download.debug_mode else '关闭'}\n"
             f"显示封面: {'显示' if cfg.download.show_cover else '不显示'}"
         )
         return True, "ok"
+
+    def _get_login_status(self, cfg: Any) -> str:
+        """获取登录状态文本。"""
+        if cfg.network.full_cookies:
+            return "✅ 已登录（完整Cookie已保存）"
+        if cfg.network.avs_cookie:
+            return "⚠️ 部分Cookie（仅AVS，可能过期）"
+        if cfg.network.username:
+            return "⏳ 已配置账号，等待首次登录"
+        return "❌ 未登录"
 
     @cmd_route("clearcache")
     async def clearcache(self) -> tuple[bool, str]:
@@ -90,6 +113,10 @@ class JmConfigCommand(JmBaseCommand):
         if not proxy_url:
             await self.reply("请提供代理URL，例如：/jmconfig proxy http://127.0.0.1:7890")
             return True, "bad args"
+        parsed = urlparse(proxy_url)
+        if parsed.scheme not in {"http", "https", "socks4", "socks5"} or not parsed.netloc:
+            await self.reply("代理URL格式无效，例如：http://127.0.0.1:7890")
+            return True, "bad proxy"
         cfg = self.jm_plugin.config
         cfg.network.proxy = proxy_url
         if save_config(cfg):
@@ -119,6 +146,7 @@ class JmConfigCommand(JmBaseCommand):
             return True, "bad args"
         cfg = self.jm_plugin.config
         cfg.network.avs_cookie = avs_cookie
+        cfg.network.full_cookies = ""
         if save_config(cfg):
             self.jm_plugin.rebuild_clients()
             await self.reply("已设置登录Cookie")
@@ -191,6 +219,78 @@ class JmConfigCommand(JmBaseCommand):
         cfg.download.show_cover = mode == "on"
         if save_config(cfg):
             await self.reply("已开启封面图片显示" if mode == "on" else "已关闭封面图片显示")
+            return True, "ok"
+        await self.reply("保存配置失败，请检查权限")
+        return True, "save failed"
+
+    @cmd_route("login")
+    async def login(self) -> tuple[bool, str]:
+        """使用配置的用户名密码执行登录。
+
+        立即执行一次完整的 JM 登录流程，获取完整 Cookie 并持久化。
+        """
+        cfg = self.jm_plugin.config
+        if not cfg.network.username or not cfg.network.password:
+            await self.reply(
+                "请先配置用户名和密码：\n"
+                "/jmconfig username <你的JM账号>\n"
+                "/jmconfig password <你的JM密码>"
+            )
+            return True, "missing credentials"
+
+        await self.reply("正在执行登录，请稍候...")
+        try:
+            session_mgr = JmSessionManager(cfg)
+            success = session_mgr.login()
+            if success:
+                # 登录成功后重建客户端以使用新 Cookie
+                self.jm_plugin.rebuild_clients()
+                await self.reply("✅ 登录成功！完整 Cookie 已保存到配置中。")
+                return True, "ok"
+            await self.reply("❌ 登录失败，请检查用户名密码和网络连接")
+            return True, "login failed"
+        except Exception as exc:
+            logger.error(f"登录失败: {exc}")
+            await self.reply(f"❌ 登录失败: {exc}")
+            return True, "error"
+
+    @cmd_route("logout")
+    async def logout(self) -> tuple[bool, str]:
+        """清除登录状态和所有 Cookie。"""
+        cfg = self.jm_plugin.config
+        cfg.network.avs_cookie = ""
+        cfg.network.full_cookies = ""
+        if save_config(cfg):
+            self.jm_plugin.rebuild_clients()
+            await self.reply("✅ 已清除登录状态和所有 Cookie")
+            return True, "ok"
+        await self.reply("保存配置失败，请检查权限")
+        return True, "save failed"
+
+    @cmd_route("username")
+    async def set_username(self, username: str = "") -> tuple[bool, str]:
+        """设置 JM 登录用户名。"""
+        if not username:
+            await self.reply("请提供用户名，例如：/jmconfig username Pan_awa")
+            return True, "bad args"
+        cfg = self.jm_plugin.config
+        cfg.network.username = username
+        if save_config(cfg):
+            await self.reply(f"✅ 已设置用户名为: {username}")
+            return True, "ok"
+        await self.reply("保存配置失败，请检查权限")
+        return True, "save failed"
+
+    @cmd_route("password")
+    async def set_password(self, password: str = "") -> tuple[bool, str]:
+        """设置 JM 登录密码。"""
+        if not password:
+            await self.reply("请提供密码，例如：/jmconfig password <你的密码>")
+            return True, "bad args"
+        cfg = self.jm_plugin.config
+        cfg.network.password = password
+        if save_config(cfg):
+            await self.reply("✅ 已设置登录密码")
             return True, "ok"
         await self.reply("保存配置失败，请检查权限")
         return True, "save failed"

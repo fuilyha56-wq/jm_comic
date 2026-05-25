@@ -142,20 +142,70 @@ class ComicDownloader:
                 last_error = humanize_download_error(exc, f"下载第{attempts}次")
                 logger.error(last_error)
 
-                # 403 地区限制/爬虫被识别：重试无意义，直接返回
+                # 403/Cloudflare/登录过期：重试无意义，直接返回
                 error_str = str(exc)
-                if "403" in error_str and (
-                    "ip地区禁止访问" in error_str or "爬虫被识别" in error_str
-                ):
+                lower_str = error_str.lower()
+
+                # Cloudflare 拦截检测
+                is_cf_blocked = any(
+                    kw in lower_str
+                    for kw in ["cloudflare", "cf_", "cf-ray", "sorry"]
+                )
+
+                # 登录过期/需要登录检测
+                is_login_needed = any(
+                    kw in lower_str
+                    for kw in ["需要登录", "login", "unauthorized", "未登录"]
+                )
+
+                # IP 地区限制/爬虫识别
+                is_ip_blocked = any(
+                    kw in error_str
+                    for kw in ["ip地区禁止访问", "爬虫被识别", "地区限制"]
+                )
+
+                if is_cf_blocked or is_ip_blocked:
                     hint = (
-                        "⚠️ 下载失败：IP 地区被限制或爬虫被识别。\n"
+                        "⚠️ 下载失败：IP 被 Cloudflare 拦截或地区限制。\n"
                         "解决方法：\n"
                         "1. 配置代理：/jmconfig proxy http://127.0.0.1:7890\n"
-                        "2. 配置 AVS Cookie：/jmconfig avs_cookie <你的cookie值>"
+                        "2. 配置用户名密码自动登录：/jmconfig username <你的账号>\n"
+                        "                             /jmconfig password <你的密码>\n"
+                        "3. 手动登录：/jmconfig login"
                     )
                     return False, hint
 
-                # 其他 403 错误（如需要登录）也不重试
+                if is_login_needed:
+                    # 自动重新登录并重试下载
+                    if self.client_factory.session_manager.has_credentials:
+                        logger.info("检测到登录过期，正在尝试自动重新登录...")
+                        login_ok = self.client_factory.session_manager.login()
+                        if login_ok:
+                            self.client_factory.update_option()
+                            logger.info("自动重新登录成功，继续下载任务")
+                            continue
+                        else:
+                            logger.warning("自动重新登录失败，将不再重试")
+                            hint = (
+                                "⚠️ 下载失败：登录已过期，且自动重新登录失败。\n"
+                                "请检查用户名密码是否正确：\n"
+                                "/jmconfig username <你的账号>\n"
+                                "/jmconfig password <你的密码>\n"
+                                "然后执行：/jmconfig login"
+                            )
+                            return False, hint
+                    else:
+                        hint = (
+                            "⚠️ 下载失败：登录已过期，需要重新登录。\n"
+                            "解决方法：\n"
+                            "1. 如果已配置账号密码，请执行：/jmconfig login\n"
+                            "2. 如果尚未配置，请先设置：/jmconfig username <你的账号>\n"
+                            "                                /jmconfig password <你的密码>\n"
+                            "   然后执行：/jmconfig login"
+                        )
+                        return False, hint
+
+                # 其他 403 错误也不重试
                 if "403" in error_str:
                     return False, last_error
         return False, last_error or "下载失败"

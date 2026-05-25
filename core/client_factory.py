@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, TYPE_CHECKING
 
 import jmcomic
 
 from src.app.plugin_system.api.log_api import get_logger
+
+from .session import JmSessionManager
 
 if TYPE_CHECKING:
     from ..config import JmComicConfig
@@ -96,6 +99,7 @@ class JMClientFactory:
         """
         self.config = config
         self.resource_manager = resource_manager
+        self.session_manager = JmSessionManager(config)
         self.option = self._create_option()
 
     def _resolve_proxy(self) -> str | None:
@@ -116,6 +120,30 @@ class JMClientFactory:
             logger.debug("未配置代理，且未检测到系统代理")
         return auto
 
+    def _resolve_cookies(self, net: Any) -> dict[str, str]:
+        """解析最终生效的 Cookie 字典。
+
+        优先级：
+        1. 完整 Cookie JSON（``full_cookies``），登录后自动保存
+        2. 单字段 ``avs_cookie``（向后兼容）
+
+        Args:
+            net: NetworkSection 配置节。
+
+        Returns:
+            Cookie 字典。
+        """
+        if net.full_cookies:
+            try:
+                parsed = json.loads(net.full_cookies)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("解析 full_cookies JSON 失败，回退到 avs_cookie")
+        if net.avs_cookie:
+            return {"AVS": net.avs_cookie}
+        return {}
+
     def _create_option(self) -> Any:
         """根据当前配置生成 jmcomic 选项对象。"""
         net = self.config.network
@@ -130,7 +158,7 @@ class JMClientFactory:
                 "postman": {
                     "meta_data": {
                         "proxies": proxies,
-                        "cookies": {"AVS": net.avs_cookie},
+                        "cookies": self._resolve_cookies(net),
                         "headers": {
                             "User-Agent": (
                                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -178,7 +206,17 @@ class JMClientFactory:
         return jmcomic.JmOption.construct(option_dict)
 
     def create_client(self) -> Any:
-        """创建一个 JM HTML 客户端实例。"""
+        """创建一个 JM HTML 客户端实例。
+
+        懒加载策略：
+        1. 首次调用时通过 ``session_manager`` 确保已登录
+        2. 如果发生了新的登录，自动重建 Option 以使用最新 Cookie
+        3. 返回使用最新配置的客户端实例
+        """
+        self.session_manager.ensure_logged_in()
+        if self.session_manager.just_logged_in:
+            self.update_option()
+            self.session_manager.reset_just_logged_in()
         return self.option.new_jm_client()
 
     def update_option(self) -> None:

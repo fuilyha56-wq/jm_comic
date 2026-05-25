@@ -59,6 +59,24 @@ class JmComicConfig(BaseConfig):
             label="AVS Cookie",
             tag="network",
         )
+        username: str = Field(
+            default="",
+            description="JM 登录用户名，配置后自动登录获取完整 Cookie",
+            label="用户名",
+            tag="network",
+        )
+        password: str = Field(
+            default="",
+            description="JM 登录密码，配合用户名自动登录",
+            label="密码",
+            tag="network",
+        )
+        full_cookies: str = Field(
+            default="",
+            description="完整 Cookie 字典 JSON，登录后自动保存，无需手动填写",
+            label="完整 Cookie",
+            tag="network",
+        )
 
     @config_section("download", title="下载设置", tag="download")
     class DownloadSection(SectionBase):
